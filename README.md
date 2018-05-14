@@ -13,6 +13,6 @@ Intended to support:
 ## Usage
 
  1. Download the information you want to analyze here: https://www.facebook.com/your_information/
- 2. Check if I've gotten anywhere with this, if not, wait for me to get somewhere.
- 3. ???
- 4. Profit
+    - Currently only supports: Messages
+ 2. Extract the zip contents into `./data/private`
+ 3. `python3 main.py`
