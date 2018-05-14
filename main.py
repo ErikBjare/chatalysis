@@ -1,7 +1,8 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from collections import namedtuple
+from collections import namedtuple, Counter
 import logging
+import re
 from typing import List
 from itertools import groupby
 
@@ -12,19 +13,59 @@ Message = namedtuple("Message", ["from_name", "to_name", "date", "content"])
 
 me = "Erik Bjäreholt"
 
+# Idk how this works, but it does
+# https://stackoverflow.com/a/26740753/965332
+re_emoji = re.compile(u'[\U00002600-\U000027BF]|[\U0001f300-\U0001f64F]|[\U0001f680-\U0001f6FF]')
+
 
 def main():
     msgs = _parse_messages()
     _print_msg(msgs[0])
     my_msgs = [m for m in msgs if me in m.from_name]
     print(f"Messages sent by me: {len(my_msgs)}")
-    for year in range(2008, 2019):
+    for year in range(2006, 2019):
         year_msgs = [m for m in my_msgs if m.date.year == year]
+        if not year_msgs:
+            continue
         words = sum(len(m.content.split(" ")) for m in year_msgs)
         chars = sum(len(m.content) for m in year_msgs)
         print(f"During {year} {len(year_msgs)} msgs were sent using {words} words and {chars} chars")
         print(f" - avg of {round(words/len(year_msgs), 1)} words per msg")
         print(f" - avg of {round(chars/len(year_msgs), 1)} chars per msg")
+
+    _people_stats(msgs)
+
+
+def _calculate_streak(days):
+    days = sorted(days)
+    last_day = None
+    curr_streak = 0
+    longest_streak = 0
+    for day in days:
+        if last_day:
+            if last_day == day - timedelta(days=1):
+                curr_streak += 1
+                if curr_streak > longest_streak:
+                    longest_streak = curr_streak
+            else:
+                curr_streak = 0
+        last_day = day
+    return longest_streak
+
+
+def _count_emoji(txt):
+    return {k: len(list(v)) for k, v in groupby(sorted(re_emoji.findall(txt)))}
+
+
+def test_count_emoji():
+    assert _count_emoji("👍👍😋😋❤") == {"👍": 2, "😋": 2, "❤": 1}
+
+
+def _most_used_emoji(msgs):
+    c = Counter()
+    for m in msgs:
+        c += _count_emoji(m)
+    return c
 
 
 def _people_stats(msgs):
@@ -32,26 +73,30 @@ def _people_stats(msgs):
     # print(people)
 
     def key(m):
-        return m.from_name + " -> " + m.to_name
+        # To preserve message direction
+        # return m.from_name + " -> " + m.to_name
+        # To disregard message direction
+        return " <-> ".join(sorted((m.to_name, m.from_name)))
 
     grouped = groupby(sorted(msgs, key=key), key=key)
     for k, v in grouped:
         v = list(v)
-        print(f"{k}: {len(v)}")
+        days = {m.date.date() for m in v}
+        print(f"{k}: {len(v)} messages on {len(days)} days")
+        print(f" - longest streak is {_calculate_streak(days)}")
+        print(f" - most used emojis: {_most_used_emoji(m.content for m in v).most_common()[:10]}")
 
 
 def _parse_messages() -> List[Message]:
     messages = []
     msgdir = Path("data/private/messages")
     for chat in msgdir.glob("*/message.html"):
-        print(chat)
         with open(chat) as f:
             data = f.read()
-            other = str(chat).split("/")[-2]
             soup = bs4.BeautifulSoup(data, "lxml")
+            other = soup.title.text
             for msg in soup.select("div[role='main']")[0]:
                 try:
-                    # print(msg.prettify())
                     sub = msg.find_all("div")
                     pfrom = sub[0].text
                     pto = me if pfrom != me else other
@@ -75,4 +120,5 @@ def _print_msg(msg: Message):
 
 
 if __name__ == "__main__":
+    logging.basicConfig()
     main()
