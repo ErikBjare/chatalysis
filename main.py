@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from pathlib import Path
-from collections import namedtuple, Counter
+from collections import namedtuple, Counter, defaultdict
 import logging
 import re
 from typing import List
@@ -68,17 +68,24 @@ def _most_used_emoji(msgs):
     return c
 
 
+def _convo_participants_key(m):
+    # To preserve message direction
+    # return m.from_name + " -> " + m.to_name
+    # To disregard message direction
+    return " <-> ".join(sorted((m.to_name, m.from_name)))
+
+
+def _calendar(msgs):
+    def datekey(m):
+        return m.date.date()
+    grouped = groupby(sorted(msgs, key=datekey), key=datekey)
+    msgs_per_date = defaultdict(list)
+    msgs_per_date.update({k: list(v) for k, v in grouped})
+    return msgs_per_date
+
+
 def _people_stats(msgs):
-    # people = {m.from_name for m in msgs} | {m.to_name for m in msgs}
-    # print(people)
-
-    def key(m):
-        # To preserve message direction
-        # return m.from_name + " -> " + m.to_name
-        # To disregard message direction
-        return " <-> ".join(sorted((m.to_name, m.from_name)))
-
-    grouped = groupby(sorted(msgs, key=key), key=key)
+    grouped = groupby(sorted(msgs, key=_convo_participants_key), key=_convo_participants_key)
     for k, v in grouped:
         v = list(v)
         days = {m.date.date() for m in v}
@@ -87,10 +94,10 @@ def _people_stats(msgs):
         print(f" - most used emojis: {_most_used_emoji(m.content for m in v).most_common()[:10]}")
 
 
-def _parse_messages() -> List[Message]:
+def _parse_messages(glob: str = '*') -> List[Message]:
     messages = []
     msgdir = Path("data/private/messages")
-    for chat in msgdir.glob("*/message.html"):
+    for chat in msgdir.glob(f"{glob}/message.html"):
         with open(chat) as f:
             data = f.read()
             soup = bs4.BeautifulSoup(data, "lxml")
