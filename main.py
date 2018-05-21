@@ -1,9 +1,10 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from pathlib import Path
 from collections import namedtuple, Counter, defaultdict
 import logging
 import re
-from typing import List
+import typing
+from typing import List, Dict, Iterator
 from itertools import groupby
 
 import bs4
@@ -18,7 +19,7 @@ me = "Erik Bjäreholt"
 re_emoji = re.compile(u'[\U00002600-\U000027BF]|[\U0001f300-\U0001f64F]|[\U0001f680-\U0001f6FF]')
 
 
-def main():
+def main() -> None:
     msgs = _parse_messages()
     _print_msg(msgs[0])
     my_msgs = [m for m in msgs if me in m.from_name]
@@ -36,7 +37,7 @@ def main():
     _people_stats(msgs)
 
 
-def _calculate_streak(days):
+def _calculate_streak(days) -> int:
     days = sorted(days)
     last_day = None
     curr_streak = 0
@@ -53,41 +54,44 @@ def _calculate_streak(days):
     return longest_streak
 
 
-def _count_emoji(txt):
+def _count_emoji(txt: str) -> Dict[str, int]:
     return {k: len(list(v)) for k, v in groupby(sorted(re_emoji.findall(txt)))}
 
 
-def test_count_emoji():
+def test_count_emoji() -> None:
     assert _count_emoji("👍👍😋😋❤") == {"👍": 2, "😋": 2, "❤": 1}
 
 
-def _most_used_emoji(msgs):
-    c = Counter()
+def _most_used_emoji(msgs: Iterator[str]) -> Counter:
+    c: typing.Counter[str] = Counter()
     for m in msgs:
-        c += _count_emoji(m)
+        c += Counter(_count_emoji(m))
     return c
 
 
-def _convo_participants_key(m):
-    # To preserve message direction
-    # return m.from_name + " -> " + m.to_name
-    # To disregard message direction
+def _convo_participants_key_dir(m: Message) -> str:
+    # Preserves message direction
+    return m.from_name + " -> " + m.to_name
+
+
+def _convo_participants_key_undir(m: Message) -> str:
+    # Disregards message direction
     return " <-> ".join(sorted((m.to_name, m.from_name)))
 
 
-def _calendar(msgs):
-    def datekey(m):
+def _calendar(msgs: List[Message]) -> Dict[date, List[Message]]:
+    def datekey(m: Message):
         return m.date.date()
     grouped = groupby(sorted(msgs, key=datekey), key=datekey)
-    msgs_per_date = defaultdict(list)
+    msgs_per_date: Dict[date, List[Message]] = defaultdict(list)
     msgs_per_date.update({k: list(v) for k, v in grouped})
     return msgs_per_date
 
 
-def _people_stats(msgs):
-    grouped = groupby(sorted(msgs, key=_convo_participants_key), key=_convo_participants_key)
-    for k, v in grouped:
-        v = list(v)
+def _people_stats(msgs: List[Message]) -> None:
+    grouped = groupby(sorted(msgs, key=_convo_participants_key_undir), key=_convo_participants_key_undir)
+    for k, _v in grouped:
+        v = list(_v)
         days = {m.date.date() for m in v}
         print(f"{k}: {len(v)} messages on {len(days)} days")
         print(f" - longest streak is {_calculate_streak(days)}")
@@ -122,7 +126,7 @@ def _parse_messages(glob: str = '*') -> List[Message]:
     return messages
 
 
-def _print_msg(msg: Message):
+def _print_msg(msg: Message) -> None:
     print(f"{msg.from_name} -> {msg.to_name}: {msg.content}   ({msg.date.isoformat()})")
 
 
