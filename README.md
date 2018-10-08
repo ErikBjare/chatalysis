@@ -1,7 +1,12 @@
-facebook-me
-===========
+Chatalysis
+==========
 
-Export data Facebook knows about you, and analyse it.
+Analyse chat conversations to figure out:
+
+ - Who you are writing with, how much, and when.
+ - Who contributes the most to the conversation.
+ - Which domains are most frequently linked.
+
 
 Intended to support:
 

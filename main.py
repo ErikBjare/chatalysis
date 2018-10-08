@@ -6,11 +6,17 @@ import re
 import typing
 from typing import List, Dict, Iterator
 from itertools import groupby
+import textwrap
 
 import bs4
+from joblib import Memory
+from tabulate import tabulate
 
 log = logging.getLogger(__name__)
-Message = namedtuple("Message", ["from_name", "to_name", "date", "content"])
+Message = namedtuple("Message", ["from_name", "to_name", "date", "content", "to_group"])
+
+cache_location = './.message_cache'
+memory = Memory(cache_location, verbose=0)
 
 me = "Erik Bjäreholt"
 
@@ -20,21 +26,43 @@ re_emoji = re.compile(u'[\U00002600-\U000027BF]|[\U0001f300-\U0001f64F]|[\U0001f
 
 
 def main() -> None:
-    msgs = _parse_messages()
-    _print_msg(msgs[0])
-    my_msgs = [m for m in msgs if me in m.from_name]
+    # memory.clear()
+    msgs = _parse_all_messages()
+
+    top_writers(msgs)
+    _yearly_messaging_stats(msgs, me)
+    # _people_stats(msgs)
+
+
+def _yearly_messaging_stats(msgs, name):
+    my_msgs = [m for m in msgs if name in m.from_name]
     print(f"Messages sent by me: {len(my_msgs)}")
+    rows = []
     for year in range(2006, 2019):
         year_msgs = [m for m in my_msgs if m.date.year == year]
         if not year_msgs:
             continue
-        words = sum(len(m.content.split(" ")) for m in year_msgs)
-        chars = sum(len(m.content) for m in year_msgs)
-        print(f"During {year} {len(year_msgs)} msgs were sent using {words} words and {chars} chars")
-        print(f" - avg of {round(words/len(year_msgs), 1)} words per msg")
-        print(f" - avg of {round(chars/len(year_msgs), 1)} chars per msg")
+        rows.append((
+            year,
+            len(year_msgs),
+            sum(len(m.content.split(" ")) for m in year_msgs),  # words
+            sum(len(m.content) for m in year_msgs)  # chars
+        ))
+    print(tabulate(rows, headers=['year', '# msgs', 'words', 'chars']))
 
-    _people_stats(msgs)
+
+def top_writers(msgs):
+    writerstats = defaultdict(lambda: Counter())
+    for msg in msgs:
+        if msg.to_group:
+            continue
+        s = writerstats[msg.from_name]
+        s['msgs'] += 1
+        s['words'] += len(msg.content.split(" "))
+    writerstats = dict(sorted(writerstats.items(), key=lambda kv: kv[1]['msgs'], reverse=True))
+
+    wrapper = textwrap.TextWrapper(max_lines=1, width=30, placeholder="...")
+    print(tabulate([(wrapper.fill(k), v['msgs'], v['words']) for k, v in writerstats.items()], headers=['name', 'msgs', 'words']))
 
 
 def _calculate_streak(days) -> int:
@@ -90,39 +118,67 @@ def _calendar(msgs: List[Message]) -> Dict[date, List[Message]]:
 
 def _people_stats(msgs: List[Message]) -> None:
     grouped = groupby(sorted(msgs, key=_convo_participants_key_undir), key=_convo_participants_key_undir)
+    rows = []
     for k, _v in grouped:
         v = list(_v)
         days = {m.date.date() for m in v}
-        print(f"{k}: {len(v)} messages on {len(days)} days")
-        print(f" - longest streak is {_calculate_streak(days)}")
-        print(f" - most used emojis: {_most_used_emoji(m.content for m in v).most_common()[:10]}")
+        rows.append((
+            k[:40],
+            len(v),
+            len(days),
+            _calculate_streak(days),
+            ", ".join([f"{v}x {k}" for k, v in _most_used_emoji(m.content for m in v).most_common()[:5]])
+        ))
+    print(tabulate(rows, headers=['k', 'days', 'max streak', 'most used emoji']))
 
 
-def _parse_messages(glob: str = '*') -> List[Message]:
-    messages = []
+def _get_all_chat_files(glob='*'):
     msgdir = Path("data/private/messages")
-    for chat in msgdir.glob(f"{glob}/message.html"):
+    return sorted(list(msgdir.glob(f"{glob}/message.html")))
+
+
+def _list_all_chats():
+    conversations = _get_all_chat_files()
+    for chat in conversations:
         with open(chat) as f:
             data = f.read()
             soup = bs4.BeautifulSoup(data, "lxml")
-            other = soup.title.text
-            for msg in soup.select("div[role='main']")[0]:
-                try:
-                    sub = msg.find_all("div")
-                    pfrom = sub[0].text
-                    pto = me if pfrom != me else other
-                    text = sub[1].text
-                    datestr = sub[7].text
-                    date = datetime.strptime(datestr, "%b %d, %Y %I:%M%p")
-                    if "You are now connected" in text:
-                        continue
-                    messages.append(Message(pfrom, pto, date, text))
-                except IndexError as e:
-                    log.warning(f"Unable to parse: {e}")
-                except ValueError as e:
-                    log.warning(f"Unable to parse: {e}")
+            print(soup.title.text)
 
+
+def _is_groupchat(soup):
+    return soup.select("div[role='main'] > div")[0].text.startswith("Participants:")
+
+
+def _parse_all_messages(glob: str = '*') -> List[Message]:
+    messages = [msg for filename in _get_all_chat_files(glob) for msg in _parse_messages(filename)]
     log.info(f"Parsed {len(messages)} messages")
+    return messages
+
+
+@memory.cache
+def _parse_messages(filename) -> List[Message]:
+    messages = []
+    with open(filename) as f:
+        data = f.read()
+        soup = bs4.BeautifulSoup(data, "lxml")
+        other = soup.title.text
+        is_groupchat = _is_groupchat(soup)
+        for msg in soup.select("div[role='main']")[0]:
+            try:
+                sub = msg.find_all("div")
+                pfrom = sub[0].text
+                pto = me if not is_groupchat and pfrom != me else other
+                text = sub[1].text
+                datestr = sub[-1].text
+                date = datetime.strptime(datestr, "%b %d, %Y %I:%M%p")
+                if "You are now connected" in text:
+                    continue
+                messages.append(Message(pfrom, pto, date, text, to_group=is_groupchat))
+            except IndexError as e:
+                log.warning(f"Unable to parse: {e} (in {filename})")
+            except ValueError as e:
+                log.warning(f"Unable to parse: {e} (in {filename})")
     return messages
 
 

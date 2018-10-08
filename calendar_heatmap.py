@@ -8,7 +8,7 @@ import numpy as np
 import sys
 from typing import Dict, List, Tuple
 
-from main import _parse_messages, _calendar
+from main import _parse_all_messages, _calendar
 
 
 def main() -> None:
@@ -29,7 +29,7 @@ def plot(data: Dict[dt.date, float]) -> None:
 
 
 def _load_data(globpat: str) -> Dict[dt.date, float]:
-    msgs = _parse_messages(globpat)
+    msgs = _parse_all_messages(globpat)
     d = _calendar(msgs)
     # FIXME: the `k.year == 2018` thing is just set because the plotting doesn't
     #        support crossing year-boundaries without weirdness.
