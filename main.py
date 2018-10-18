@@ -31,7 +31,7 @@ def main() -> None:
 
     top_writers(msgs)
     _yearly_messaging_stats(msgs, me)
-    # _people_stats(msgs)
+    _people_stats(msgs)
 
 
 def _yearly_messaging_stats(msgs, name):
@@ -57,12 +57,16 @@ def top_writers(msgs):
         if msg.to_group:
             continue
         s = writerstats[msg.from_name]
+        if 'days' not in s:
+            s['days'] = set()
+        s['days'] = s.get('days', set()) | {msg.date.date()}
         s['msgs'] += 1
         s['words'] += len(msg.content.split(" "))
     writerstats = dict(sorted(writerstats.items(), key=lambda kv: kv[1]['msgs'], reverse=True))
 
     wrapper = textwrap.TextWrapper(max_lines=1, width=30, placeholder="...")
-    print(tabulate([(wrapper.fill(k), v['msgs'], v['words']) for k, v in writerstats.items()], headers=['name', 'msgs', 'words']))
+    print(tabulate([(wrapper.fill(k), v['msgs'], len(v['days']), v['words']) for k, v in writerstats.items()],
+                   headers=['name', 'msgs', 'days', 'words']))
 
 
 def _calculate_streak(days) -> int:
