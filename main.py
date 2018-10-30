@@ -1,19 +1,29 @@
 from datetime import datetime, timedelta, date
 from pathlib import Path
-from collections import namedtuple, Counter, defaultdict
+from collections import Counter, defaultdict
 import logging
 import re
 import typing
 from typing import List, Dict, Iterator
 from itertools import groupby
 import textwrap
+from dataclasses import dataclass, field
 
 import bs4
 from joblib import Memory
 from tabulate import tabulate
 
 log = logging.getLogger(__name__)
-Message = namedtuple("Message", ["from_name", "to_name", "date", "content", "to_group"])
+
+
+@dataclass
+class Message:
+    from_name: str
+    to_name: str
+    date: datetime
+    content: str
+    data: dict = field(default_factory=dict)
+
 
 cache_location = './.message_cache'
 memory = Memory(cache_location, verbose=0)
@@ -32,6 +42,13 @@ def main() -> None:
     top_writers(msgs)
     _yearly_messaging_stats(msgs, me)
     _people_stats(msgs)
+    _most_reacted_msgs(msgs)
+
+
+def _most_reacted_msgs(msgs):
+    msgs = sorted(msgs, key=lambda m: -len(m.data['reacts']))
+    for m in msgs[:30]:
+        _print_msg(m)
 
 
 def _yearly_messaging_stats(msgs, name):
@@ -54,7 +71,7 @@ def _yearly_messaging_stats(msgs, name):
 def top_writers(msgs):
     writerstats = defaultdict(lambda: Counter())
     for msg in msgs:
-        if msg.to_group:
+        if msg.data.get('groupchat', False):
             continue
         s = writerstats[msg.from_name]
         if 'days' not in s:
@@ -90,8 +107,13 @@ def _count_emoji(txt: str) -> Dict[str, int]:
     return {k: len(list(v)) for k, v in groupby(sorted(re_emoji.findall(txt)))}
 
 
+def _format_emojicount(emojicount: Dict[str, int]):
+    return ", ".join(f"{n}x {emoji}" for n, emoji in reversed(sorted((v, k) for k, v in emojicount.items())))
+
+
 def test_count_emoji() -> None:
     assert _count_emoji("👍👍😋😋❤") == {"👍": 2, "😋": 2, "❤": 1}
+    assert _format_emojicount(_count_emoji("👍👍😋😋❤")) == "2x 😋, 2x 👍, 1x ❤"
 
 
 def _most_used_emoji(msgs: Iterator[str]) -> Counter:
@@ -131,7 +153,7 @@ def _people_stats(msgs: List[Message]) -> None:
             len(v),
             len(days),
             _calculate_streak(days),
-            ", ".join([f"{v}x {k}" for k, v in _most_used_emoji(m.content for m in v).most_common()[:5]])
+            _format_emojicount(dict(_most_used_emoji(m.content for m in v).most_common()[:5]))
         ))
     print(tabulate(rows, headers=['k', 'days', 'max streak', 'most used emoji']))
 
@@ -168,26 +190,31 @@ def _parse_messages(filename) -> List[Message]:
         soup = bs4.BeautifulSoup(data, "lxml")
         other = soup.title.text
         is_groupchat = _is_groupchat(soup)
-        for msg in soup.select("div[role='main']")[0]:
+
+        entries = iter(soup.select("div[role='main']")[0])
+        next(entries)  # skip first as it is the participant list
+        for msg in entries:
             try:
                 sub = msg.find_all("div")
                 pfrom = sub[0].text
                 pto = me if not is_groupchat and pfrom != me else other
-                text = sub[1].text
+                text = sub[1].select('div')[2].text
+                reacts = [(el.text[0], el.text[1:]) for el in sub[1].select("ul._tqp > li")]
                 datestr = sub[-1].text
                 date = datetime.strptime(datestr, "%b %d, %Y %I:%M%p")
                 if "You are now connected" in text:
                     continue
-                messages.append(Message(pfrom, pto, date, text, to_group=is_groupchat))
+                messages.append(Message(pfrom, pto, date, text, data={'groupchat': is_groupchat, 'reacts': reacts}))
             except IndexError as e:
-                log.warning(f"Unable to parse: {e} (in {filename})")
+                log.warning(f"Unable to parse: {e} (in {filename} for msg {msg})")
             except ValueError as e:
-                log.warning(f"Unable to parse: {e} (in {filename})")
+                log.warning(f"Unable to parse: {e} (in {filename} for msg {msg})")
     return messages
 
 
 def _print_msg(msg: Message) -> None:
-    print(f"{msg.from_name} -> {msg.to_name}: {msg.content}   ({msg.date.isoformat()})")
+    emojicount_str = _format_emojicount(_count_emoji(''.join(t[0] for t in msg.data['reacts'])))
+    print(f"{msg.date.isoformat()[:10]} | {msg.from_name} -> {msg.to_name}: {msg.content}  ({emojicount_str})")
 
 
 if __name__ == "__main__":
