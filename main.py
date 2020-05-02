@@ -3,17 +3,17 @@ from pathlib import Path
 from collections import Counter, defaultdict
 import logging
 import re
+import json
 import typing
-from typing import List, Dict, Iterator
+from typing import List, Dict, Iterator, Optional
 from itertools import groupby
 import textwrap
 from dataclasses import dataclass, field
 
-import bs4
 from joblib import Memory
 from tabulate import tabulate
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -22,6 +22,7 @@ class Message:
     to_name: str
     date: datetime
     content: str
+    reactions: List[dict] = field(default_factory=list)
     data: dict = field(default_factory=dict)
 
 
@@ -40,6 +41,7 @@ re_emoji = re.compile(
 def main() -> None:
     # memory.clear()
     msgs = _parse_all_messages()
+    msgs = [msg for msg in msgs if msg.to_name == "Peace Club Dropouts"]
 
     top_writers(msgs)
     _yearly_messaging_stats(msgs, me)
@@ -48,7 +50,8 @@ def main() -> None:
 
 
 def _most_reacted_msgs(msgs):
-    msgs = sorted(msgs, key=lambda m: -len(m.data["reacts"]))
+    msgs = filter(lambda m: m.reactions, msgs)
+    msgs = sorted(msgs, key=lambda m: -len(m.reactions))
     for m in msgs[:30]:
         _print_msg(m)
 
@@ -128,6 +131,7 @@ def _format_emojicount(emojicount: Dict[str, int]):
 
 
 def test_count_emoji() -> None:
+    assert _count_emoji("\u00e2\u009d\u00a4") == {"\u00e2\u009d\u00a4": 1}
     assert _count_emoji("👍👍😋😋❤") == {"👍": 2, "😋": 2, "❤": 1}
     assert _format_emojicount(_count_emoji("👍👍😋😋❤")) == "2x 😋, 2x 👍, 1x ❤"
 
@@ -183,21 +187,16 @@ def _people_stats(msgs: List[Message]) -> None:
 
 
 def _get_all_chat_files(glob="*"):
-    msgdir = Path("data/private/messages")
-    return sorted(list(msgdir.glob(f"{glob}/message.html")))
+    msgdir = Path("data/messages/inbox")
+    return sorted(list(msgdir.glob(f"{glob}/message*.json")))
 
 
 def _list_all_chats():
     conversations = _get_all_chat_files()
     for chat in conversations:
         with open(chat) as f:
-            data = f.read()
-            soup = bs4.BeautifulSoup(data, "lxml")
-            print(soup.title.text)
-
-
-def _is_groupchat(soup):
-    return soup.select("div[role='main'] > div")[0].text.startswith("Participants:")
+            data = json.load(f)
+            print(data["title"])
 
 
 def _parse_all_messages(glob: str = "*") -> List[Message]:
@@ -206,53 +205,49 @@ def _parse_all_messages(glob: str = "*") -> List[Message]:
         for filename in _get_all_chat_files(glob)
         for msg in _parse_messages(filename)
     ]
-    log.info(f"Parsed {len(messages)} messages")
+    logger.info(f"Parsed {len(messages)} messages")
     return messages
 
 
 @memory.cache
-def _parse_messages(filename) -> List[Message]:
+def _parse_messages(filename: str) -> List[Message]:
     messages = []
     with open(filename) as f:
-        data = f.read()
-        soup = bs4.BeautifulSoup(data, "lxml")
-        other = soup.title.text
-        is_groupchat = _is_groupchat(soup)
+        data = json.load(f)
+        title = data["title"]
+        participants = data["participants"]
+        thread_type = data[
+            "thread_type"
+        ]  # Can be one of at least: Regular, RegularGroup
+        is_groupchat = thread_type == "RegularGroup"
 
-        entries = iter(soup.select("div[role='main']")[0])
-        next(entries)  # skip first as it is the participant list
-        for msg in entries:
-            try:
-                sub = msg.find_all("div")
-                pfrom = sub[0].text
-                pto = me if not is_groupchat and pfrom != me else other
-                text = sub[1].select("div")[2].text
-                reacts = [
-                    (el.text[0], el.text[1:]) for el in sub[1].select("ul._tqp > li")
-                ]
-                datestr = sub[-1].text
-                date = datetime.strptime(datestr, "%b %d, %Y %I:%M%p")
-                if "You are now connected" in text:
-                    continue
-                messages.append(
-                    Message(
-                        pfrom,
-                        pto,
-                        date,
-                        text,
-                        data={"groupchat": is_groupchat, "reacts": reacts},
-                    )
+        for msg in data["messages"]:
+            if "content" not in msg:
+                logger.info(f"Skipping non-text message: {msg}")
+                continue
+
+            sender = msg["sender_name"]
+            receiver = me if not is_groupchat and sender != me else title
+            text = msg["content"]
+            reacts: List[dict] = msg.get("reactions", [])
+            date = datetime.fromtimestamp(msg["timestamp_ms"] / 1000)
+
+            messages.append(
+                Message(
+                    sender,
+                    receiver,
+                    date,
+                    text,
+                    reactions=reacts,
+                    data={"groupchat": is_groupchat},
                 )
-            except IndexError as e:
-                log.warning(f"Unable to parse: {e} (in {filename} for msg {msg})")
-            except ValueError as e:
-                log.warning(f"Unable to parse: {e} (in {filename} for msg {msg})")
+            )
     return messages
 
 
 def _print_msg(msg: Message) -> None:
     emojicount_str = _format_emojicount(
-        _count_emoji("".join(t[0] for t in msg.data["reacts"]))
+        _count_emoji("".join(d["reaction"] for d in msg.reactions))
     )
     print(
         f"{msg.date.isoformat()[:10]} | {msg.from_name} -> {msg.to_name}: {msg.content}  ({emojicount_str})"

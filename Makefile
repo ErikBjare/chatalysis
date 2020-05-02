@@ -1,5 +1,5 @@
 main:
-	pipenv run python3 main.py
+	poetry run python3 main.py
 
 test:
-	pipenv run python3 -m pytest *.py
+	poetry run python3 -m pytest *.py

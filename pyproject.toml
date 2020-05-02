@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "chatalysis"
+version = "0.1.0"
+description = "Analyze your chat conversations"
+authors = ["Erik Bjäreholt <erik@bjareho.lt>"]
+license = "MPL-2.0"
+
+[tool.poetry.dependencies]
+python = "^3.7"
+joblib = "^0.14.1"
+tabulate = "^0.8.7"
+matplotlib = "^3.2.1"
+
+[tool.poetry.dev-dependencies]
+mypy = "^0.770"
+pytest = "^5.4.1"
+black = "^19.10b0"
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
