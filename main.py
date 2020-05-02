@@ -1,15 +1,17 @@
-from datetime import datetime, timedelta, date
-from pathlib import Path
-from collections import Counter, defaultdict
 import logging
 import re
 import json
 import typing
-from typing import List, Dict, Iterator, Optional
-from itertools import groupby
 import textwrap
+
+from datetime import datetime, timedelta, date
+from pathlib import Path
+from collections import Counter, defaultdict
+from typing import List, Dict, Iterator
+from itertools import groupby
 from dataclasses import dataclass, field
 
+import click
 from joblib import Memory
 from tabulate import tabulate
 
@@ -29,7 +31,7 @@ class Message:
 cache_location = "./.message_cache"
 memory = Memory(cache_location, verbose=0)
 
-me = "Erik Bjäreholt"
+me = "Erik Bj"
 
 # Idk how this works, but it does
 # https://stackoverflow.com/a/26740753/965332
@@ -38,14 +40,34 @@ re_emoji = re.compile(
 )
 
 
-def main() -> None:
+@click.group()
+def main():
     # memory.clear()
-    msgs = _parse_all_messages()
-    msgs = [msg for msg in msgs if msg.to_name == "Peace Club Dropouts"]
+    pass
 
-    top_writers(msgs)
+
+@main.command()
+def yearly() -> None:
+    msgs = _parse_all_messages()
     _yearly_messaging_stats(msgs, me)
+
+
+@main.command()
+def top_writers() -> None:
+    msgs = _parse_all_messages()
+    top_writers(msgs)
+
+
+@main.command()
+def people() -> None:
+    msgs = _parse_all_messages()
     _people_stats(msgs)
+    _most_reacted_msgs(msgs)
+
+
+@main.command()
+def most_reacted() -> None:
+    msgs = _parse_all_messages()
     _most_reacted_msgs(msgs)
 
 
@@ -60,7 +82,7 @@ def _yearly_messaging_stats(msgs, name):
     my_msgs = [m for m in msgs if name in m.from_name]
     print(f"Messages sent by me: {len(my_msgs)}")
     rows = []
-    for year in range(2006, 2019):
+    for year in range(2006, 2021):
         year_msgs = [m for m in my_msgs if m.date.year == year]
         if not year_msgs:
             continue
@@ -187,7 +209,7 @@ def _people_stats(msgs: List[Message]) -> None:
 
 
 def _get_all_chat_files(glob="*"):
-    msgdir = Path("data/messages/inbox")
+    msgdir = Path("data/private/messages/inbox")
     return sorted(list(msgdir.glob(f"{glob}/message*.json")))
 
 
