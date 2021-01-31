@@ -33,7 +33,7 @@ def _load_data(globpat: str) -> Dict[dt.date, float]:
     d = _calendar(msgs)
     # FIXME: the `k.year == 2018` thing is just set because the plotting doesn't
     #        support crossing year-boundaries without weirdness.
-    return {k: len(v) for k, v in d.items() if k.year == 2018}
+    return {k: len(v) for k, v in d.items() if k.year == 2020}
 
 
 def _calendar_array(dates: List[dt.date], data: List[float]) -> Tuple[np.array, np.array, np.array]:

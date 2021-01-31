@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "Analyze your chat conversations"
 authors = ["Erik Bjäreholt <erik@bjareho.lt>"]
 license = "MPL-2.0"
+packages = [
+    { include = "chatalysis" }
+]
 
 [tool.poetry.dependencies]
 python = "^3.7"
@@ -12,7 +15,7 @@ tabulate = "^0.8.7"
 matplotlib = "^3.2.1"
 
 [tool.poetry.dev-dependencies]
-mypy = "^0.770"
+mypy = "*"
 pytest = "^5.4.1"
 black = "^19.10b0"
 
