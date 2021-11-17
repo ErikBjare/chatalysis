@@ -9,15 +9,15 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.7"
-joblib = "^0.14.1"
-tabulate = "^0.8.7"
-matplotlib = "^3.2.1"
+python = "^3.8"
+joblib = "^1.1"
+tabulate = "^0.8"
+matplotlib = "*"
 
 [tool.poetry.dev-dependencies]
 mypy = "*"
-pytest = "^5.4.1"
-black = "^19.10b0"
+pytest = "*"
+black = "*"
 
 [build-system]
 requires = ["poetry>=0.12"]
