@@ -387,7 +387,7 @@ def _parse_chatfile(filename: str) -> Conversation:
 
         for msg in data["messages"]:
             if "content" not in msg:
-                logger.info(f"Skipping non-text message: {msg}")
+                logger.debug(f"Skipping non-text message: {msg}")
                 continue
 
             # the `.encode('latin1').decode('utf8')` hack is needed due to https://stackoverflow.com/a/50011987/965332
