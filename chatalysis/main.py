@@ -7,7 +7,7 @@ import textwrap
 from datetime import datetime, timedelta, date
 from pathlib import Path
 from collections import Counter, defaultdict
-from typing import List, Dict, Iterator
+from typing import List, Dict, Iterator, Any
 from itertools import groupby
 from dataclasses import dataclass, field
 
@@ -28,6 +28,24 @@ class Message:
     data: dict = field(default_factory=dict)
 
 
+@dataclass
+class Conversation:
+    title: str
+    participants: list[str]
+    messages: list[Message]
+    data: dict
+
+    def merge(self, c2: "Conversation") -> "Conversation":
+        assert self.title == c2.title
+        assert self.participants == c2.participants
+        return Conversation(
+            title=self.title,
+            participants=self.participants,
+            messages=sorted(self.messages + c2.messages, key=lambda m: m.date),
+            data=self.data,
+        )
+
+
 cache_location = "./.message_cache"
 memory = Memory(cache_location, verbose=0)
 
@@ -43,32 +61,89 @@ re_emoji = re.compile(
 @click.group()
 def main():
     # memory.clear()
+    logging.basicConfig()
     pass
 
 
 @main.command()
 def yearly() -> None:
-    msgs = _parse_all_messages()
+    """Your messaging stats, by year"""
+    msgs = _load_all_messages()
     _yearly_messaging_stats(msgs, me)
 
 
 @main.command()
-def top_writers() -> None:
-    msgs = _parse_all_messages()
-    top_writers(msgs)
+@click.argument("glob", default="*")
+def top_writers(glob: str) -> None:
+    """Lists the top writers"""
+    msgs = _load_all_messages(glob)
+    _top_writers(msgs)
 
 
 @main.command()
 def people() -> None:
-    msgs = _parse_all_messages()
+    """A list of all people"""
+    msgs = _load_all_messages()
     _people_stats(msgs)
-    _most_reacted_msgs(msgs)
 
 
 @main.command()
 def most_reacted() -> None:
-    msgs = _parse_all_messages()
+    """A list of the most reacted messages"""
+    msgs = _load_all_messages()
     _most_reacted_msgs(msgs)
+
+
+@main.command()
+def groups(glob="*") -> None:
+    """Lists groupchats"""
+    conversations = _load_convos(glob)
+    for convo in conversations:
+        if not convo.data["groupchat"]:
+            continue
+        print(f" - {convo.title}")
+
+
+@main.command()
+@click.argument("glob", default="*")
+def creepers(glob: str) -> None:
+    """
+    Lists creeping participants (who have minimal or no engagement)
+
+    Note: this is perhaps easier using same output as from top-writers, but taking the bottom instead
+
+    """
+    convos = _load_convos(glob)
+
+    for convo in convos:
+        if not convo.data["groupchat"]:
+            continue
+
+        messages_by_user: dict[str, int] = defaultdict(int)
+        reacts_by_user: dict[str, int] = defaultdict(int)
+        for message in convo.messages:
+            messages_by_user[message.from_name] += 1
+            for react in message.reactions:
+                actor = react["actor"]
+                reacts_by_user[actor] += 1
+
+        fullcreeps = set(convo.participants) - (
+            set(messages_by_user.keys()) | set(reacts_by_user.keys())
+        )
+
+        stats = [
+            (part, messages_by_user[part], reacts_by_user[part])
+            for part in set(convo.participants)
+        ]
+        stats = sorted(stats, key=lambda t: t[1])
+        print(
+            tabulate(
+                stats,
+                headers=["name", "messages", "reacts"],
+            )
+        )
+
+        print(sorted(fullcreeps))
 
 
 def _most_reacted_msgs(msgs):
@@ -97,8 +172,8 @@ def _yearly_messaging_stats(msgs, name):
     print(tabulate(rows, headers=["year", "# msgs", "words", "chars"]))
 
 
-def top_writers(msgs):
-    writerstats = defaultdict(lambda: Counter())
+def _top_writers(msgs):
+    writerstats: dict[str, Any] = defaultdict(lambda: Counter())
     for msg in msgs:
         if msg.data.get("groupchat", False):
             continue
@@ -208,9 +283,39 @@ def _people_stats(msgs: List[Message]) -> None:
     print(tabulate(rows, headers=["k", "days", "max streak", "most used emoji"]))
 
 
+def _get_all_conv_dirs(glob="*"):
+    msgdir = Path("data/private/messages/inbox")
+    return [path.parent for path in msgdir.glob(f"{glob}/message_1.json")]
+
+
+def _load_convo(convdir: Path) -> Conversation:
+    chatfiles = convdir.glob("message_*.json")
+    convo = None
+    for file in chatfiles:
+        if convo is None:
+            convo = _parse_chatfile(file)
+        else:
+            convo = convo.merge(_parse_chatfile(file))
+    assert convo is not None
+    return convo
+
+
+def _load_convos(glob="*"):
+    convos = [_load_convo(convdir) for convdir in _get_all_conv_dirs()]
+    if glob != "*":
+        convos = [convo for convo in convos if glob in convo.title]
+    return convos
+
+
 def _get_all_chat_files(glob="*"):
     msgdir = Path("data/private/messages/inbox")
-    return sorted(list(msgdir.glob(f"{glob}/message*.json")))
+    return sorted(
+        [
+            chatfile
+            for convdir in _get_all_conv_dirs(glob)
+            for chatfile in msgdir.glob(f"{glob}/message*.json")
+        ]
+    )
 
 
 def _list_all_chats():
@@ -221,23 +326,23 @@ def _list_all_chats():
             print(data["title"])
 
 
-def _parse_all_messages(glob: str = "*") -> List[Message]:
-    messages = [
-        msg
-        for filename in _get_all_chat_files(glob)
-        for msg in _parse_messages(filename)
-    ]
-    logger.info(f"Parsed {len(messages)} messages")
+def _load_all_messages(glob: str = "*") -> List[Message]:
+    messages = [msg for msg in _load_convos(glob).messages]
+    logger.info(f"Loaded {len(messages)} messages")
     return messages
 
 
 @memory.cache
-def _parse_messages(filename: str) -> List[Message]:
+def _parse_chatfile(filename: str) -> Conversation:
+    # FIXME: This should open all `message_*.json` files and merge into a single convo
     messages = []
     with open(filename) as f:
         data = json.load(f)
-        title = data["title"]
-        participants = data["participants"]
+        title = data["title"].encode("latin1").decode("utf8")
+        participants: List[str] = [
+            p["name"].encode("latin1").decode("utf8") for p in data["participants"]
+        ]
+        # print(participants)
         thread_type = data[
             "thread_type"
         ]  # Can be one of at least: Regular, RegularGroup
@@ -248,10 +353,18 @@ def _parse_messages(filename: str) -> List[Message]:
                 logger.info(f"Skipping non-text message: {msg}")
                 continue
 
-            sender = msg["sender_name"]
-            receiver = me if not is_groupchat and sender != me else title
-            text = msg["content"]
+            # the `.encode('latin1').decode('utf8')` hack is needed due to https://stackoverflow.com/a/50011987/965332
+            sender = msg["sender_name"].encode("latin1").decode("utf8")
+            text = msg["content"].encode("latin1").decode("utf8")
             reacts: List[dict] = msg.get("reactions", [])
+            for react in reacts:
+                react["reaction"] = react["reaction"].encode("latin1").decode("utf8")
+                react["actor"] = react["actor"].encode("latin1").decode("utf8")
+
+            # if reacts:
+            #     print(f"R: {reacts}")
+
+            receiver = me if not is_groupchat and sender != me else title
             date = datetime.fromtimestamp(msg["timestamp_ms"] / 1000)
 
             messages.append(
@@ -264,7 +377,13 @@ def _parse_messages(filename: str) -> List[Message]:
                     data={"groupchat": is_groupchat},
                 )
             )
-    return messages
+
+    return Conversation(
+        title=title,
+        participants=participants,
+        messages=messages,
+        data={"groupchat": is_groupchat},
+    )
 
 
 def _print_msg(msg: Message) -> None:
@@ -277,5 +396,4 @@ def _print_msg(msg: Message) -> None:
 
 
 if __name__ == "__main__":
-    logging.basicConfig()
     main()
