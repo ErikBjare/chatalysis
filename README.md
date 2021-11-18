@@ -15,4 +15,21 @@ Analyse chat conversations to figure out:
     - Note: Make sure to use JSON
     - Currently only supports: Messages
  2. Extract the zip contents into `./data/private`
- 3. `python3 main.py`
+ 3. Install dependencies with `poetry install` or `pip install .`
+ 3. `chatalysis --help`
+
+```
+$ chatalysis --help
+Usage: chatalysis [OPTIONS] COMMAND [ARGS]...
+
+Options:
+  --help  Show this message and exit.
+
+Commands:
+  creepers      Lists creeping participants (who have minimal or no...
+  groups        Lists groupchats
+  most-reacted  A list of the most reacted messages
+  people        A list of all people
+  top-writers   Lists the top writers
+  yearly        Your messaging stats, by year
+```
