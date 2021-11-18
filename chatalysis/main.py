@@ -66,6 +66,13 @@ def main():
 
 
 @main.command()
+def daily() -> None:
+    """Your messaging stats, by date"""
+    msgs = _load_all_messages()
+    _daily_messaging_stats(msgs, me)
+
+
+@main.command()
 def yearly() -> None:
     """Your messaging stats, by year"""
     msgs = _load_all_messages()
@@ -75,7 +82,7 @@ def yearly() -> None:
 @main.command()
 @click.argument("glob", default="*")
 def top_writers(glob: str) -> None:
-    """Lists the top writers"""
+    """List the top writers"""
     msgs = _load_all_messages(glob)
     _top_writers(msgs)
 
@@ -90,7 +97,7 @@ def people() -> None:
 @main.command()
 @click.argument("glob", default="*")
 def convos(glob: str) -> None:
-    """Lists all conversations (groups and 1-1s)"""
+    """List all conversations (groups and 1-1s)"""
     convos = _load_convos(glob)
 
     data = []
@@ -108,9 +115,9 @@ def most_reacted() -> None:
 
 @main.command()
 @click.argument("glob", default="*")
-def creepers(glob: str) -> None:
+def creeps(glob: str) -> None:
     """
-    Lists creeping participants (who have minimal or no engagement)
+    List creeping participants (who have minimal or no engagement)
 
     Note: this is perhaps easier using same output as from top-writers, but taking the bottom instead
 
@@ -169,6 +176,29 @@ def _yearly_messaging_stats(msgs, name):
                 len(year_msgs),
                 sum(len(m.content.split(" ")) for m in year_msgs),  # words
                 sum(len(m.content) for m in year_msgs),  # chars
+            )
+        )
+    print(tabulate(rows, headers=["year", "# msgs", "words", "chars"]))
+
+
+def _daily_messaging_stats(msgs, name):
+    msgs = [m for m in msgs if name in m.from_name]
+    print(f"Messages sent by me: {len(msgs)}")
+    rows = []
+
+    msgs_by_date = defaultdict(list)
+    for msg in msgs:
+        msgs_by_date[msg.date.date()].append(msg)
+
+    for d, msgs in sorted(msgs_by_date.items()):
+        if not msgs:
+            continue
+        rows.append(
+            (
+                d,
+                len(msgs),
+                sum(len(m.content.split(" ")) for m in msgs),  # words
+                sum(len(m.content) for m in msgs),  # chars
             )
         )
     print(tabulate(rows, headers=["year", "# msgs", "words", "chars"]))
