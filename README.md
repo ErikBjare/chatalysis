@@ -8,7 +8,7 @@ Analyse chat conversations to figure out:
  - Who you are writing with, how much, and when.
  - Who contributes the most to the conversation (and who's just creeping).
  - Which messages have the most reacts.
- - Which domains are most frequently linked.
+ - Search all past messages by author or content.
 
 
 ## Usage
@@ -31,8 +31,17 @@ Commands:
   convos        List all conversations (groups and 1-1s)
   creeps        List creeping participants (who have minimal or no...
   daily         Your messaging stats, by date
+  messages      List messages, filter by user or content.
   most-reacted  List the most reacted messages
   people        List all people
   top-writers   List the top writers
   yearly        Your messaging stats, by year
 ```
+
+
+## TODO 
+
+ - Support more datasources
+ - Analyze which domains are most frequently linked.
+ - Sentiment analysis
+ - Try making metrics to analyze popularity/message/"alpha"/"signal" quality (average positive reacts per message?)
