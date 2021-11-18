@@ -27,6 +27,24 @@ class Message:
     reactions: List[dict] = field(default_factory=list)
     data: dict = field(default_factory=dict)
 
+    def print(self) -> None:
+        emojicount_str = _format_emojicount(
+            _count_emoji("".join(d["reaction"] for d in self.reactions))
+        )
+        content = self.content
+
+        # start multiline messages on new line
+        if content.count("\n") > 0:
+            content = "\n  " + "\n  ".join(content.split("\n"))
+
+        # wrap long lines correctly
+        if content.count("\n") == 0:
+            words = content.split(" ")
+            content = " ".join(words[:20]) + " " + " ".join(words[20:])
+        print(
+            f"{self.date.isoformat()[:10]} | {self.from_name} -> {self.to_name}: {content}  ({emojicount_str})"
+        )
+
 
 @dataclass
 class Conversation:
@@ -66,17 +84,25 @@ def main():
 
 
 @main.command()
-def daily() -> None:
+@click.argument("glob", default="*")
+@click.option("--user")
+def daily(glob: str, user: str = None) -> None:
     """Your messaging stats, by date"""
-    msgs = _load_all_messages()
-    _daily_messaging_stats(msgs, me)
+    msgs = _load_all_messages(glob)
+    if user:
+        msgs = _filter_author(msgs, user)
+    _daily_messaging_stats(msgs)
 
 
 @main.command()
-def yearly() -> None:
+@click.argument("glob", default="*")
+@click.option("--user")
+def yearly(glob: str, user: str = None) -> None:
     """Your messaging stats, by year"""
-    msgs = _load_all_messages()
-    _yearly_messaging_stats(msgs, me)
+    msgs = _load_all_messages(glob)
+    if user:
+        msgs = _filter_author(msgs, user)
+    _yearly_messaging_stats(msgs)
 
 
 @main.command()
@@ -85,6 +111,17 @@ def top_writers(glob: str) -> None:
     """List the top writers"""
     msgs = _load_all_messages(glob)
     _top_writers(msgs)
+
+
+@main.command()
+@click.option("--user")
+def messages(user: str = None) -> None:
+    """List messages"""
+    msgs = _load_all_messages()
+    if user:
+        msgs = [msg for msg in msgs if user.lower() in msg.from_name.lower()]
+    for msg in msgs:
+        msg.print()
 
 
 @main.command()
@@ -107,9 +144,10 @@ def convos(glob: str) -> None:
 
 
 @main.command()
-def most_reacted() -> None:
+@click.argument("glob", default="*")
+def most_reacted(glob: str) -> None:
     """List the most reacted messages"""
-    msgs = _load_all_messages()
+    msgs = _load_all_messages(glob)
     _most_reacted_msgs(msgs)
 
 
@@ -120,7 +158,6 @@ def creeps(glob: str) -> None:
     List creeping participants (who have minimal or no engagement)
 
     Note: this is perhaps easier using same output as from top-writers, but taking the bottom instead
-
     """
     convos = _load_convos(glob)
 
@@ -140,11 +177,14 @@ def creeps(glob: str) -> None:
             set(messages_by_user.keys()) | set(reacts_by_user.keys())
         )
 
+        # includes participants who've left the chat
+        all_participants = set(convo.participants) | set(messages_by_user.keys())
+        print(f"# {convo.title}\n")
         stats = [
             (part, messages_by_user[part], reacts_by_user[part])
-            for part in set(convo.participants)
+            for part in all_participants
         ]
-        stats = sorted(stats, key=lambda t: t[1])
+        stats = list(reversed(sorted(stats, key=lambda t: (t[1], t[2]))))
         print(
             tabulate(
                 stats,
@@ -152,19 +192,23 @@ def creeps(glob: str) -> None:
             )
         )
 
-        print("No engagement from: " + ", ".join(sorted(fullcreeps)))
+        print("\nNo engagement from: " + ", ".join(sorted(fullcreeps)))
+        print()
 
 
 def _most_reacted_msgs(msgs):
     msgs = filter(lambda m: m.reactions, msgs)
     msgs = sorted(msgs, key=lambda m: -len(m.reactions))
-    for m in msgs[:30]:
-        _print_msg(m)
+    for msg in msgs[:30]:
+        msg.print()
 
 
-def _yearly_messaging_stats(msgs, name):
-    msgs = [m for m in msgs if name in m.from_name]
-    print(f"Messages sent by me: {len(msgs)}")
+def _filter_author(msgs: list[Message], name: str) -> list[Message]:
+    return [m for m in msgs if name in m.from_name]
+
+
+def _yearly_messaging_stats(msgs: list[Message]):
+    print(f"All-time messages sent: {len(msgs)}")
 
     msgs_by_date = defaultdict(list)
     for msg in msgs:
@@ -185,9 +229,8 @@ def _yearly_messaging_stats(msgs, name):
     print(tabulate(rows, headers=["year", "# msgs", "words", "chars"]))
 
 
-def _daily_messaging_stats(msgs, name):
-    msgs = [m for m in msgs if name in m.from_name]
-    print(f"Messages sent by me: {len(msgs)}")
+def _daily_messaging_stats(msgs):
+    print(f"All-time messages sent: {len(msgs)}")
 
     msgs_by_date = defaultdict(list)
     for msg in msgs:
@@ -208,17 +251,18 @@ def _daily_messaging_stats(msgs, name):
     print(tabulate(rows, headers=["year", "# msgs", "words", "chars"]))
 
 
-def _top_writers(msgs):
-    writerstats: dict[str, Any] = defaultdict(lambda: Counter())
+def _top_writers(msgs: list[Message]):
+    writerstats: dict[str, Any] = defaultdict(lambda: defaultdict(int))
     for msg in msgs:
-        if msg.data.get("groupchat", False):
-            continue
+        # if msg.data["groupchat"]:
+        #     continue
         s = writerstats[msg.from_name]
         if "days" not in s:
             s["days"] = set()
         s["days"] = s.get("days", set()) | {msg.date.date()}
         s["msgs"] += 1
         s["words"] += len(msg.content.split(" "))
+
     writerstats = dict(
         sorted(writerstats.items(), key=lambda kv: kv[1]["msgs"], reverse=True)
     )
@@ -420,15 +464,6 @@ def _parse_chatfile(filename: str) -> Conversation:
         participants=participants,
         messages=messages,
         data={"groupchat": is_groupchat},
-    )
-
-
-def _print_msg(msg: Message) -> None:
-    emojicount_str = _format_emojicount(
-        _count_emoji("".join(d["reaction"] for d in msg.reactions))
-    )
-    print(
-        f"{msg.date.isoformat()[:10]} | {msg.from_name} -> {msg.to_name}: {msg.content}  ({emojicount_str})"
     )
 
 
