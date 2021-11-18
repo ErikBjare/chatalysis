@@ -163,19 +163,23 @@ def _most_reacted_msgs(msgs):
 
 
 def _yearly_messaging_stats(msgs, name):
-    my_msgs = [m for m in msgs if name in m.from_name]
-    print(f"Messages sent by me: {len(my_msgs)}")
+    msgs = [m for m in msgs if name in m.from_name]
+    print(f"Messages sent by me: {len(msgs)}")
+
+    msgs_by_date = defaultdict(list)
+    for msg in msgs:
+        msgs_by_date[msg.date.year].append(msg)
+
     rows = []
-    for year in range(2006, 2021):
-        year_msgs = [m for m in my_msgs if m.date.year == year]
-        if not year_msgs:
+    for year, msgs in sorted(msgs_by_date.items()):
+        if not msgs:
             continue
         rows.append(
             (
                 year,
-                len(year_msgs),
-                sum(len(m.content.split(" ")) for m in year_msgs),  # words
-                sum(len(m.content) for m in year_msgs),  # chars
+                len(msgs),
+                sum(len(m.content.split(" ")) for m in msgs),  # words
+                sum(len(m.content) for m in msgs),  # chars
             )
         )
     print(tabulate(rows, headers=["year", "# msgs", "words", "chars"]))
@@ -184,12 +188,12 @@ def _yearly_messaging_stats(msgs, name):
 def _daily_messaging_stats(msgs, name):
     msgs = [m for m in msgs if name in m.from_name]
     print(f"Messages sent by me: {len(msgs)}")
-    rows = []
 
     msgs_by_date = defaultdict(list)
     for msg in msgs:
         msgs_by_date[msg.date.date()].append(msg)
 
+    rows = []
     for d, msgs in sorted(msgs_by_date.items()):
         if not msgs:
             continue
