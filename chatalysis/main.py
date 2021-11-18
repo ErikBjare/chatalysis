@@ -61,7 +61,7 @@ re_emoji = re.compile(
 @click.group()
 def main():
     # memory.clear()
-    logging.basicConfig()
+    logging.basicConfig(level=logging.INFO)
     pass
 
 
@@ -82,26 +82,28 @@ def top_writers(glob: str) -> None:
 
 @main.command()
 def people() -> None:
-    """A list of all people"""
+    """List all people"""
     msgs = _load_all_messages()
     _people_stats(msgs)
 
 
 @main.command()
-def most_reacted() -> None:
-    """A list of the most reacted messages"""
-    msgs = _load_all_messages()
-    _most_reacted_msgs(msgs)
+@click.argument("glob", default="*")
+def convos(glob: str) -> None:
+    """Lists all conversations (groups and 1-1s)"""
+    convos = _load_convos(glob)
+
+    data = []
+    for convo in convos:
+        data.append((convo.title, len(convo.participants), len(convo.messages)))
+    print(tabulate(data, headers=["name", "members", "messages"]))
 
 
 @main.command()
-def groups(glob="*") -> None:
-    """Lists groupchats"""
-    conversations = _load_convos(glob)
-    for convo in conversations:
-        if not convo.data["groupchat"]:
-            continue
-        print(f" - {convo.title}")
+def most_reacted() -> None:
+    """List the most reacted messages"""
+    msgs = _load_all_messages()
+    _most_reacted_msgs(msgs)
 
 
 @main.command()
@@ -143,7 +145,7 @@ def creepers(glob: str) -> None:
             )
         )
 
-        print(sorted(fullcreeps))
+        print("No engagement from: " + ", ".join(sorted(fullcreeps)))
 
 
 def _most_reacted_msgs(msgs):
@@ -283,9 +285,9 @@ def _people_stats(msgs: List[Message]) -> None:
     print(tabulate(rows, headers=["k", "days", "max streak", "most used emoji"]))
 
 
-def _get_all_conv_dirs(glob="*"):
+def _get_all_conv_dirs():
     msgdir = Path("data/private/messages/inbox")
-    return [path.parent for path in msgdir.glob(f"{glob}/message_1.json")]
+    return [path.parent for path in msgdir.glob("*/message_1.json")]
 
 
 def _load_convo(convdir: Path) -> Conversation:
@@ -301,9 +303,10 @@ def _load_convo(convdir: Path) -> Conversation:
 
 
 def _load_convos(glob="*"):
+    logger.info("Loading conversations...")
     convos = [_load_convo(convdir) for convdir in _get_all_conv_dirs()]
     if glob != "*":
-        convos = [convo for convo in convos if glob in convo.title]
+        convos = [convo for convo in convos if glob.lower() in convo.title.lower()]
     return convos
 
 
@@ -312,7 +315,7 @@ def _get_all_chat_files(glob="*"):
     return sorted(
         [
             chatfile
-            for convdir in _get_all_conv_dirs(glob)
+            for convdir in _get_all_conv_dirs()
             for chatfile in msgdir.glob(f"{glob}/message*.json")
         ]
     )
@@ -327,7 +330,7 @@ def _list_all_chats():
 
 
 def _load_all_messages(glob: str = "*") -> List[Message]:
-    messages = [msg for msg in _load_convos(glob).messages]
+    messages = [msg for convo in _load_convos(glob) for msg in convo.messages]
     logger.info(f"Loaded {len(messages)} messages")
     return messages
 
