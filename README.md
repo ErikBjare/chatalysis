@@ -1,6 +1,8 @@
 Chatalysis
 ==========
 
+[![Build Status GitHub](https://github.com/ErikBjare/chatalysis/workflows/Build/badge.svg?branch=master)](https://github.com/ErikBjare/chatalysis/actions?query=branch%3Amaster)
+
 Analyse chat conversations to figure out:
 
  - Who you are writing with, how much, and when.
