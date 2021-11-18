@@ -42,7 +42,8 @@ class Message:
             words = content.split(" ")
             content = " ".join(words[:20]) + " " + " ".join(words[20:])
         print(
-            f"{self.date.isoformat()[:10]} | {self.from_name} -> {self.to_name}: {content}  ({emojicount_str})"
+            f"{self.date.isoformat()[:10]} | {self.from_name} -> {self.to_name}: {content}"
+            + ("  ({emojicount_str})" if emojicount_str else "")
         )
 
 
@@ -115,11 +116,15 @@ def top_writers(glob: str) -> None:
 
 @main.command()
 @click.option("--user")
-def messages(user: str = None) -> None:
-    """List messages"""
+@click.option("--contains")
+def messages(user: str = None, contains: str = None) -> None:
+    """List messages, filter by user or content."""
     msgs = _load_all_messages()
     if user:
         msgs = [msg for msg in msgs if user.lower() in msg.from_name.lower()]
+    if contains:
+        msgs = [msg for msg in msgs if contains.lower() in msg.content.lower()]
+    msgs = sorted(msgs, key=lambda m: m.date)
     for msg in msgs:
         msg.print()
 
@@ -138,8 +143,12 @@ def convos(glob: str) -> None:
     convos = _load_convos(glob)
 
     data = []
+    wrapper = textwrap.TextWrapper(max_lines=1, width=30, placeholder="...")
     for convo in convos:
-        data.append((convo.title, len(convo.participants), len(convo.messages)))
+        data.append(
+            (wrapper.fill(convo.title), len(convo.participants), len(convo.messages))
+        )
+    data = sorted(data, key=lambda t: t[2])
     print(tabulate(data, headers=["name", "members", "messages"]))
 
 
