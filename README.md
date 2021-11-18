@@ -26,10 +26,11 @@ Options:
   --help  Show this message and exit.
 
 Commands:
-  creepers      Lists creeping participants (who have minimal or no...
-  groups        Lists groupchats
-  most-reacted  A list of the most reacted messages
-  people        A list of all people
-  top-writers   Lists the top writers
+  convos        List all conversations (groups and 1-1s)
+  creeps        List creeping participants (who have minimal or no...
+  daily         Your messaging stats, by date
+  most-reacted  List the most reacted messages
+  people        List all people
+  top-writers   List the top writers
   yearly        Your messaging stats, by year
 ```
