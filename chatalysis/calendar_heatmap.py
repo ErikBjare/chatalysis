@@ -9,7 +9,7 @@ from typing import Dict, List, Tuple
 
 import click
 
-from main import _load_all_messages, _calendar
+from .main import _load_all_messages, _calendar
 
 
 @click.command()
