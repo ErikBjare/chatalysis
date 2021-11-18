@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "chatalysis"
-version = "0.1.0"
+version = "0.2.0"
 description = "Analyze your chat conversations"
 authors = ["Erik Bjäreholt <erik@bjareho.lt>"]
 license = "MPL-2.0"
