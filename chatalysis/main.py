@@ -1,80 +1,24 @@
 import logging
-import re
-import json
-import typing
 import textwrap
 
-from datetime import datetime, timedelta, date
-from pathlib import Path
-from collections import Counter, defaultdict
-from typing import List, Dict, Iterator, Any
+from collections import defaultdict
+from typing import List, Any
 from itertools import groupby
-from dataclasses import dataclass, field
 
 import click
-from joblib import Memory
 from tabulate import tabulate
 
-logger = logging.getLogger(__name__)
-
-
-@dataclass
-class Message:
-    from_name: str
-    to_name: str
-    date: datetime
-    content: str
-    reactions: List[dict] = field(default_factory=list)
-    data: dict = field(default_factory=dict)
-
-    def print(self) -> None:
-        emojicount_str = _format_emojicount(
-            _count_emoji("".join(d["reaction"] for d in self.reactions))
-        )
-        content = self.content
-
-        # start multiline messages on new line
-        if content.count("\n") > 0:
-            content = "\n  " + "\n  ".join(content.split("\n"))
-
-        # wrap long lines correctly
-        if content.count("\n") == 0:
-            words = content.split(" ")
-            content = " ".join(words[:20]) + " " + " ".join(words[20:])
-        print(
-            f"{self.date.isoformat()[:10]} | {self.from_name} -> {self.to_name}: {content}"
-            + ("  ({emojicount_str})" if emojicount_str else "")
-        )
-
-
-@dataclass
-class Conversation:
-    title: str
-    participants: list[str]
-    messages: list[Message]
-    data: dict
-
-    def merge(self, c2: "Conversation") -> "Conversation":
-        assert self.title == c2.title
-        assert self.participants == c2.participants
-        return Conversation(
-            title=self.title,
-            participants=self.participants,
-            messages=sorted(self.messages + c2.messages, key=lambda m: m.date),
-            data=self.data,
-        )
-
-
-cache_location = "./.message_cache"
-memory = Memory(cache_location, verbose=0)
-
-me = "Erik Bj"
-
-# Idk how this works, but it does
-# https://stackoverflow.com/a/26740753/965332
-re_emoji = re.compile(
-    "[\U00002600-\U000027BF]|[\U0001f300-\U0001f64F]|[\U0001f680-\U0001f6FF]"
+from .models import Message, Writerstats
+from .util import (
+    _calculate_streak,
+    _format_emojicount,
+    _most_used_emoji,
+    _convo_participants_key_undir,
+    _filter_author,
 )
+from .load import _load_all_messages, _load_convos
+
+logger = logging.getLogger(__name__)
 
 
 @click.group()
@@ -124,7 +68,7 @@ def messages(user: str = None, contains: str = None) -> None:
         msgs = [msg for msg in msgs if user.lower() in msg.from_name.lower()]
     if contains:
         msgs = [msg for msg in msgs if contains.lower() in msg.content.lower()]
-    msgs = sorted(msgs, key=lambda m: m.date)
+    msgs = sorted(msgs, key=lambda m: m.timestamp)
     for msg in msgs:
         msg.print()
 
@@ -212,16 +156,12 @@ def _most_reacted_msgs(msgs):
         msg.print()
 
 
-def _filter_author(msgs: list[Message], name: str) -> list[Message]:
-    return [m for m in msgs if name in m.from_name]
-
-
 def _yearly_messaging_stats(msgs: list[Message]):
     print(f"All-time messages sent: {len(msgs)}")
 
     msgs_by_date = defaultdict(list)
     for msg in msgs:
-        msgs_by_date[msg.date.year].append(msg)
+        msgs_by_date[msg.timestamp.year].append(msg)
 
     rows = []
     for year, msgs in sorted(msgs_by_date.items()):
@@ -238,12 +178,12 @@ def _yearly_messaging_stats(msgs: list[Message]):
     print(tabulate(rows, headers=["year", "# msgs", "words", "chars"]))
 
 
-def _daily_messaging_stats(msgs):
+def _daily_messaging_stats(msgs: list[Message]):
     print(f"All-time messages sent: {len(msgs)}")
 
     msgs_by_date = defaultdict(list)
     for msg in msgs:
-        msgs_by_date[msg.date.date()].append(msg)
+        msgs_by_date[msg.timestamp.date()].append(msg)
 
     rows = []
     for d, msgs in sorted(msgs_by_date.items()):
@@ -260,93 +200,57 @@ def _daily_messaging_stats(msgs):
     print(tabulate(rows, headers=["year", "# msgs", "words", "chars"]))
 
 
-def _top_writers(msgs: list[Message]):
-    writerstats: dict[str, Any] = defaultdict(lambda: defaultdict(int))
+def _writerstats(msgs: list[Message]) -> dict[str, Writerstats]:
+    writerstats: dict[str, Writerstats] = defaultdict(lambda: Writerstats())
     for msg in msgs:
         # if msg.data["groupchat"]:
         #     continue
         s = writerstats[msg.from_name]
-        if "days" not in s:
-            s["days"] = set()
-        s["days"] = s.get("days", set()) | {msg.date.date()}
-        s["msgs"] += 1
-        s["words"] += len(msg.content.split(" "))
+        s.days |= {msg.timestamp.date()}
+        s.msgs += 1
+        s.words += len(msg.content.split(" "))
+        for react in msg.reactions:
+            # TODO: Save which reacts the writer used (with Counter?)
+            s.reacts_recv += 1  # [react]
+            writerstats[react["actor"]].reacts_sent += 1  # [react]
 
+    return writerstats
+
+
+def _top_writers(msgs: list[Message]):
+    writerstats = _writerstats(msgs)
     writerstats = dict(
-        sorted(writerstats.items(), key=lambda kv: kv[1]["msgs"], reverse=True)
+        sorted(writerstats.items(), key=lambda kv: kv[1].msgs, reverse=True)
     )
 
     wrapper = textwrap.TextWrapper(max_lines=1, width=30, placeholder="...")
     print(
         tabulate(
             [
-                (wrapper.fill(k), v["msgs"], len(v["days"]), v["words"])
-                for k, v in writerstats.items()
+                (
+                    wrapper.fill(writer),
+                    stats.msgs,
+                    len(stats.days),
+                    stats.words,
+                    stats.reacts_sent,
+                    stats.reacts_recv,
+                    round(
+                        1000 * (stats.reacts_recv / stats.words) if stats.words else 0,
+                    ),
+                )
+                for writer, stats in writerstats.items()
             ],
-            headers=["name", "msgs", "days", "words"],
+            headers=[
+                "name",
+                "msgs",
+                "days",
+                "words",
+                "reacts sent",
+                "reacts recv",
+                "reacts/1k words",
+            ],
         )
     )
-
-
-def _calculate_streak(days) -> int:
-    days = sorted(days)
-    last_day = None
-    curr_streak = 0
-    longest_streak = 0
-    for day in days:
-        if last_day:
-            if last_day == day - timedelta(days=1):
-                curr_streak += 1
-                if curr_streak > longest_streak:
-                    longest_streak = curr_streak
-            else:
-                curr_streak = 0
-        last_day = day
-    return longest_streak
-
-
-def _count_emoji(txt: str) -> Dict[str, int]:
-    return {k: len(list(v)) for k, v in groupby(sorted(re_emoji.findall(txt)))}
-
-
-def _format_emojicount(emojicount: Dict[str, int]):
-    return ", ".join(
-        f"{n}x {emoji}"
-        for n, emoji in reversed(sorted((v, k) for k, v in emojicount.items()))
-    )
-
-
-def test_count_emoji() -> None:
-    # assert _count_emoji("\u00e2\u009d\u00a4") == {"\u00e2\u009d\u00a4": 1}
-    assert _count_emoji("👍👍😋😋❤") == {"👍": 2, "😋": 2, "❤": 1}
-    assert _format_emojicount(_count_emoji("👍👍😋😋❤")) == "2x 😋, 2x 👍, 1x ❤"
-
-
-def _most_used_emoji(msgs: Iterator[str]) -> Counter:
-    c: typing.Counter[str] = Counter()
-    for m in msgs:
-        c += Counter(_count_emoji(m))
-    return c
-
-
-def _convo_participants_key_dir(m: Message) -> str:
-    # Preserves message direction
-    return m.from_name + " -> " + m.to_name
-
-
-def _convo_participants_key_undir(m: Message) -> str:
-    # Disregards message direction
-    return " <-> ".join(sorted((m.to_name, m.from_name)))
-
-
-def _calendar(msgs: List[Message]) -> Dict[date, List[Message]]:
-    def datekey(m: Message):
-        return m.date.date()
-
-    grouped = groupby(sorted(msgs, key=datekey), key=datekey)
-    msgs_per_date: Dict[date, List[Message]] = defaultdict(list)
-    msgs_per_date.update({k: list(v) for k, v in grouped})
-    return msgs_per_date
 
 
 def _people_stats(msgs: List[Message]) -> None:
@@ -357,7 +261,7 @@ def _people_stats(msgs: List[Message]) -> None:
     rows = []
     for k, _v in grouped:
         v = list(_v)
-        days = {m.date.date() for m in v}
+        days = {m.timestamp.date() for m in v}
         rows.append(
             (
                 k[:40],
@@ -370,110 +274,6 @@ def _people_stats(msgs: List[Message]) -> None:
             )
         )
     print(tabulate(rows, headers=["k", "days", "max streak", "most used emoji"]))
-
-
-def _get_all_conv_dirs():
-    msgdir = Path("data/private/messages/inbox")
-    return [path.parent for path in msgdir.glob("*/message_1.json")]
-
-
-def _load_convo(convdir: Path) -> Conversation:
-    chatfiles = convdir.glob("message_*.json")
-    convo = None
-    for file in chatfiles:
-        if convo is None:
-            convo = _parse_chatfile(file)
-        else:
-            convo = convo.merge(_parse_chatfile(file))
-    assert convo is not None
-    return convo
-
-
-def _load_convos(glob="*"):
-    logger.info("Loading conversations...")
-    convos = [_load_convo(convdir) for convdir in _get_all_conv_dirs()]
-    if glob != "*":
-        convos = [convo for convo in convos if glob.lower() in convo.title.lower()]
-    return convos
-
-
-def _get_all_chat_files(glob="*"):
-    msgdir = Path("data/private/messages/inbox")
-    return sorted(
-        [
-            chatfile
-            for convdir in _get_all_conv_dirs()
-            for chatfile in msgdir.glob(f"{glob}/message*.json")
-        ]
-    )
-
-
-def _list_all_chats():
-    conversations = _get_all_chat_files()
-    for chat in conversations:
-        with open(chat) as f:
-            data = json.load(f)
-            print(data["title"])
-
-
-def _load_all_messages(glob: str = "*") -> List[Message]:
-    messages = [msg for convo in _load_convos(glob) for msg in convo.messages]
-    logger.info(f"Loaded {len(messages)} messages")
-    return messages
-
-
-@memory.cache
-def _parse_chatfile(filename: str) -> Conversation:
-    # FIXME: This should open all `message_*.json` files and merge into a single convo
-    messages = []
-    with open(filename) as f:
-        data = json.load(f)
-        title = data["title"].encode("latin1").decode("utf8")
-        participants: List[str] = [
-            p["name"].encode("latin1").decode("utf8") for p in data["participants"]
-        ]
-        # print(participants)
-        thread_type = data[
-            "thread_type"
-        ]  # Can be one of at least: Regular, RegularGroup
-        is_groupchat = thread_type == "RegularGroup"
-
-        for msg in data["messages"]:
-            if "content" not in msg:
-                logger.debug(f"Skipping non-text message: {msg}")
-                continue
-
-            # the `.encode('latin1').decode('utf8')` hack is needed due to https://stackoverflow.com/a/50011987/965332
-            sender = msg["sender_name"].encode("latin1").decode("utf8")
-            text = msg["content"].encode("latin1").decode("utf8")
-            reacts: List[dict] = msg.get("reactions", [])
-            for react in reacts:
-                react["reaction"] = react["reaction"].encode("latin1").decode("utf8")
-                react["actor"] = react["actor"].encode("latin1").decode("utf8")
-
-            # if reacts:
-            #     print(f"R: {reacts}")
-
-            receiver = me if not is_groupchat and sender != me else title
-            date = datetime.fromtimestamp(msg["timestamp_ms"] / 1000)
-
-            messages.append(
-                Message(
-                    sender,
-                    receiver,
-                    date,
-                    text,
-                    reactions=reacts,
-                    data={"groupchat": is_groupchat},
-                )
-            )
-
-    return Conversation(
-        title=title,
-        participants=participants,
-        messages=messages,
-        data={"groupchat": is_groupchat},
-    )
 
 
 if __name__ == "__main__":
