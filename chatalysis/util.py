@@ -56,7 +56,7 @@ def _most_used_emoji(msgs: Iterator[str]) -> Counter:
 
 def _convo_participants_key_dir(m: Message) -> str:
     # Preserves message direction
-    return m.from_name + " -> " + m.to_name
+    return f'{m.from_name} -> {m.to_name}'
 
 
 def _convo_participants_key_undir(m: Message) -> str:

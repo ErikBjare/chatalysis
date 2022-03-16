@@ -25,7 +25,6 @@ logger = logging.getLogger(__name__)
 def main():
     # memory.clear()
     logging.basicConfig(level=logging.INFO)
-    pass
 
 
 @main.command()
@@ -86,12 +85,16 @@ def convos(glob: str) -> None:
     """List all conversations (groups and 1-1s)"""
     convos = _load_convos(glob)
 
-    data = []
     wrapper = textwrap.TextWrapper(max_lines=1, width=30, placeholder="...")
-    for convo in convos:
-        data.append(
-            (wrapper.fill(convo.title), len(convo.participants), len(convo.messages))
+    data = [
+        (
+            wrapper.fill(convo.title),
+            len(convo.participants),
+            len(convo.messages),
         )
+        for convo in convos
+    ]
+
     data = sorted(data, key=lambda t: t[2])
     print(tabulate(data, headers=["name", "members", "messages"]))
 
@@ -163,18 +166,12 @@ def _yearly_messaging_stats(msgs: list[Message]):
     for msg in msgs:
         msgs_by_date[msg.timestamp.year].append(msg)
 
-    rows = []
-    for year, msgs in sorted(msgs_by_date.items()):
-        if not msgs:
-            continue
-        rows.append(
-            (
+    rows = [(
                 year,
                 len(msgs),
                 sum(len(m.content.split(" ")) for m in msgs),  # words
                 sum(len(m.content) for m in msgs),  # chars
-            )
-        )
+            ) for year, msgs in sorted(msgs_by_date.items()) if msgs]
     print(tabulate(rows, headers=["year", "# msgs", "words", "chars"]))
 
 
@@ -185,18 +182,12 @@ def _daily_messaging_stats(msgs: list[Message]):
     for msg in msgs:
         msgs_by_date[msg.timestamp.date()].append(msg)
 
-    rows = []
-    for d, msgs in sorted(msgs_by_date.items()):
-        if not msgs:
-            continue
-        rows.append(
-            (
+    rows = [(
                 d,
                 len(msgs),
                 sum(len(m.content.split(" ")) for m in msgs),  # words
                 sum(len(m.content) for m in msgs),  # chars
-            )
-        )
+            ) for d, msgs in sorted(msgs_by_date.items()) if msgs]
     print(tabulate(rows, headers=["year", "# msgs", "words", "chars"]))
 
 
