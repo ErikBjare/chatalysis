@@ -12,16 +12,16 @@ packages = [
 chatalysis = "chatalysis.main:main"
 
 [tool.poetry.dependencies]
-python = "^3.8"
-joblib = "^1.1"
-tabulate = "^0.8"
+python = "^3.9"
+joblib = "*"
+tabulate = "*"
 matplotlib = "*"
 
 [tool.poetry.dev-dependencies]
 mypy = "*"
 pytest = "*"
 black = "*"
-types-tabulate = "^0.8"
+types-tabulate = "*"
 
 [tool.pytest.ini_options]
 minversion = "6.0"
