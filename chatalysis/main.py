@@ -2,7 +2,7 @@ import logging
 import textwrap
 
 from collections import defaultdict
-from typing import List, Any
+from typing import List, Any, Tuple, Dict
 from itertools import groupby
 
 import click
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 @click.group()
 def main():
     # memory.clear()
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
     pass
 
 
@@ -274,6 +274,32 @@ def _people_stats(msgs: List[Message]) -> None:
             )
         )
     print(tabulate(rows, headers=["k", "days", "max streak", "most used emoji"]))
+
+
+def _connections(msgs: List[Message]) -> Dict[Tuple[str, str], int]:
+    connections: Dict[Tuple[str, str], int] = defaultdict(int)
+    for msg in msgs:
+        if msg.data["groupchat"]:
+            continue
+        connections[(msg.from_name, msg.to_name)] += 1
+    return connections
+
+
+@main.command()
+@click.option("--csv", "-c", is_flag=True)
+def connections(csv: bool) -> None:
+    """
+    List all connections between interacting people, assigning weights as per the number of messages they have exchanged.
+    """
+    # TODO: Also count reply-messages and immediately-following messages in groupchats
+    msgs = _load_all_messages()
+    connections = _connections(msgs)
+    if csv:
+        print(",".join(["from", "to", "count"]))
+        for k, v in sorted(connections.items(), key=lambda kv: kv[1], reverse=True):
+            print(",".join(map(str, k + (v,))))
+    else:
+        print(tabulate(sorted(connections.items()), headers=["from", "to", "count"]))
 
 
 if __name__ == "__main__":
