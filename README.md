@@ -2,6 +2,7 @@ Chatalysis
 ==========
 
 [![Build Status GitHub](https://github.com/ErikBjare/chatalysis/workflows/Build/badge.svg?branch=master)](https://github.com/ErikBjare/chatalysis/actions?query=branch%3Amaster)
+[![codecov](https://codecov.io/gh/ErikBjare/chatalysis/branch/master/graph/badge.svg?token=mG3sqsPL6Z)](https://codecov.io/gh/ErikBjare/chatalysis)
 
 Analyse chat conversations to figure out:
 
