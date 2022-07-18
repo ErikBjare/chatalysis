@@ -78,16 +78,14 @@ def _parse_message(msg: dict, is_groupchat: bool, title: str) -> Optional[Messag
             text = msg.pop("content").encode("latin1").decode("utf8")
     elif _type == "Share":
         if "share" in msg:
-            share = msg.pop("share", None)
-            if share:
+            if share := msg.pop("share", None):
                 text = share["link"]
         else:
             logger.warning("Share message without share field")
     else:
         logger.info(f"Skipping non-text message with type {_type}: {msg}")
 
-    is_unsent = msg.pop("is_unsent", None)
-    if is_unsent:
+    if is_unsent := msg.pop("is_unsent", None):
         print(f"is_unsent: {is_unsent}")
 
     # the `.encode('latin1').decode('utf8')` hack is needed due to https://stackoverflow.com/a/50011987/965332
