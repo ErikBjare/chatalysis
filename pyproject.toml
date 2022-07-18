@@ -22,6 +22,7 @@ mypy = "*"
 pytest = "*"
 black = "*"
 types-tabulate = "*"
+pytest-cov = "^3.0.0"
 
 [tool.pytest.ini_options]
 minversion = "6.0"
